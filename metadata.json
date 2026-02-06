@@ -1,0 +1,7 @@
+{
+  "name": "FacturaAI - Extractor de Facturas Inteligente",
+  "description": "Una herramienta profesional para la extracción automática de datos de facturas utilizando Gemini Vision AI. Sube una imagen y obtén datos estructurados listos para exportar.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
