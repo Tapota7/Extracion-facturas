@@ -1,20 +1,22 @@
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { InvoiceData } from "./types";
 
 export const extractInvoiceData = async (base64Image: string): Promise<InvoiceData> => {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  // Soporta tanto Vite (import.meta.env) como Node.js (process.env)
+  const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
 
   if (!apiKey) {
-    throw new Error("API Key no configurada. Verifica .env.local");
+    throw new Error("API Key no configurada. Verifica .env.local o variables de entorno");
   }
 
   // Clean base64 if it has data URL prefix
   const base64Clean = base64Image.includes(',') ? base64Image.split(',')[1] : base64Image;
 
-  const requestBody = {
-    contents: [{
-      parts: [
-        {
-          text: `Analyze this invoice image and extract the following information in JSON format:
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
+
+    const prompt = `Analyze this invoice image and extract the following information in JSON format:
 - invoiceNumber: invoice number
 - date: date
 - vendorName: vendor name
@@ -26,47 +28,27 @@ export const extractInvoiceData = async (base64Image: string): Promise<InvoiceDa
 - paymentTerms: payment terms
 - lineItems: array of objects with {description, quantity, unitPrice, subtotal}
 
-Return ONLY valid JSON, no markdown, no extra text.`
-        },
-        {
-          inline_data: {
-            mime_type: "image/jpeg",
-            data: base64Clean
-          }
-        }
-      ]
-    }]
-  };
+Return ONLY valid JSON, no markdown, no extra text.`;
 
-  try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody)
-      }
-    );
+    const imagePart = {
+      inlineData: {
+        data: base64Clean,
+        mimeType: "image/jpeg",
+      },
+    };
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(`API Error: ${JSON.stringify(errorData)}`);
-    }
+    const result = await model.generateContent([prompt, imagePart]);
+    const response = await result.response;
+    const text = response.text();
 
-    const data = await response.json();
-
-    if (!data.candidates || !data.candidates[0]?.content?.parts?.[0]?.text) {
+    if (!text) {
       throw new Error("No se recibió respuesta válida de la API");
     }
 
-    let text = data.candidates[0].content.parts[0].text;
-
     // Clean markdown code blocks
-    text = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const cleanedText = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
 
-    const parsed = JSON.parse(text) as InvoiceData;
+    const parsed = JSON.parse(cleanedText) as InvoiceData;
 
     // Ensure numeric fields
     parsed.totalAmount = Number(parsed.totalAmount) || 0;
